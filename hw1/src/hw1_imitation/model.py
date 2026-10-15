@@ -46,13 +46,27 @@ class MSEPolicy(BasePolicy):
         hidden_dims: tuple[int, ...] = (128, 128),
     ) -> None:
         super().__init__(state_dim, action_dim, chunk_size)
+        self.hidden_dims = hidden_dims
+
+        layers: list[nn.Module] = []
+        prev_dim = state_dim
+        for hidden_dim in hidden_dims:
+            layers.append(nn.Linear(prev_dim, hidden_dim))
+            layers.append(nn.ReLU())
+            prev_dim = hidden_dim
+        # Final layer outputs the whole chunk as a flat vector; no activation so
+        # it can predict any (normalized) action value.
+        layers.append(nn.Linear(prev_dim, chunk_size * action_dim))
+        self.net = nn.Sequential(*layers)
 
     def compute_loss(
         self,
         state: torch.Tensor,
         action_chunk: torch.Tensor,
     ) -> torch.Tensor:
-        raise NotImplementedError
+        res = self.sample_actions(state)
+        return nn.functional.mse_loss(res, action_chunk)
+        
 
     def sample_actions(
         self,
@@ -60,7 +74,9 @@ class MSEPolicy(BasePolicy):
         *,
         num_steps: int = 10,
     ) -> torch.Tensor:
-        raise NotImplementedError
+        res = self.net(state)
+        return res.reshape(state.shape[0], self.chunk_size, self.action_dim)
+        
 
 
 class FlowMatchingPolicy(BasePolicy):
